@@ -1,15 +1,266 @@
-<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
-</head><body>
-<title>Garment Edit — interactive demos</title>
-<style>body{max-width:720px;margin:0 auto;padding:32px 20px;line-height:1.5;color:#1b2130}h1{font-size:1.5rem}a.card{display:block;border:1px solid #ccc;border-radius:10px;padding:14px 16px;margin:12px 0;text-decoration:none;color:inherit}a.card:hover{border-color:#2a7d55}.card b{font-size:1.05rem}.card span{color:#5c6472;font-size:.9rem}</style>
-<h1>Learning to Initialize Simulation-Based Garment Panel Editing — interactive demos</h1>
-<p style="color:#5c6472">Companion interactive figures. Drapes are precomputed simulations; rendering is a 3-D preview, not online cloth simulation.</p>
-<a class="card" href="pipeline3d/"><b>Edit pipeline 3D</b><br><span>original → target → direct → learned init → ours, worn on the body; rotate all together.</span></a>
-<a class="card" href="shirt3d/"><b>Sleeved shirt edit 3D</b><br><span>our method on a sleeved shirt: short-sleeve high-neck → learned init → long-sleeve fitted result, worn on the body.</span></a>
-<a class="card" href="shirt3d_studio/"><b>Sleeved shirt studio</b><br><span>move the four edit parameters (sleeve length, neckline depth/width) and watch the real draped shirt update on the body.</span></a>
-<a class="card" href="skirt3d/"><b>Skirt fit studio</b><br><span>pull the hem on a real draped skirt on the body; the 2-D panels update.</span></a>
-<a class="card" href="predictor/"><b>Hem predictor</b><br><span>drag a target hemline; the learned model predicts the pattern edit in-browser.</span></a>
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Garment Editing Studio</title>
+<meta name="description" content="Pick a base garment on the body, drag a point to edit it, and watch the 2-D sewing panels update live.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{ --paper:#edeae3; --panel:#f7f6f2; --ink:#1b2130; --muted:#5c6472; --line:#c9c6bd;
+    --scene:#e4e0d6; --skin:#c8b6a6; --cloth:#5aa0bf; --edit:#c0392b; --base:#9aa0ab; --grid:#d3d0c7; --accent:#2a7d55;
+    --fs:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace; }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842; --scene:#20242b; --skin:#8a7868;
+    --cloth:#5aa0bf; --edit:#e8604f; --base:#79818f; --grid:#2a2e36; --accent:#3fa06d; color-scheme:dark;}}
+  :root[data-theme="dark"]{ --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842; --scene:#20242b;
+    --skin:#8a7868; --cloth:#5aa0bf; --edit:#e8604f; --base:#79818f; --grid:#2a2e36; --accent:#3fa06d; color-scheme:dark;}
+  *{box-sizing:border-box} body{background:var(--paper);color:var(--ink);font-family:var(--fs);line-height:1.45;margin:0}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 16px env(safe-area-inset-bottom,16px)}
+  h1{font-size:1.4rem;margin:0 0 2px} header p{margin:0;color:var(--muted);font-size:.9rem;max-width:80ch}
+  .tabs{display:flex;gap:8px;margin:14px 0}
+  .tabs button{font:600 .92rem var(--fs);padding:8px 16px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink);cursor:pointer}
+  .tabs button[aria-selected=true]{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tabs button:disabled{opacity:.5;cursor:default}
+  .layout{display:grid;grid-template-columns:1.25fr 1fr;gap:14px}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .stage{position:relative;width:100%;aspect-ratio:3/4;background:var(--scene);border-radius:9px;overflow:hidden;touch-action:none}
+  .stage canvas{display:block;width:100%;height:100%}
+  .handle{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:var(--edit);
+    border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4);cursor:grab;z-index:4;touch-action:none;display:none}
+  .handle b{color:#fff;font-size:14px;line-height:26px;display:block;text-align:center;font-weight:700}
+  .hint{position:absolute;left:10px;bottom:10px;font:.72rem/1.3 var(--mono);color:var(--muted);
+    background:color-mix(in srgb,var(--panel) 82%,transparent);padding:4px 8px;border-radius:7px;z-index:3}
+  h2{font-size:.96rem;margin:2px 2px 8px}
+  .panelrow{display:flex;gap:10px;flex-wrap:wrap}
+  .panelrow svg{flex:1 1 150px;min-width:130px;height:auto;background:var(--scene);border:1px solid var(--line);border-radius:8px}
+  .readout{margin-top:10px;font:.82rem var(--mono);color:var(--muted)}
+  .readout b{color:var(--accent)}
+  .note{margin-top:14px;font-size:.8rem;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;max-width:84ch}
+  .note b{color:var(--ink)} .loading{padding:40px;text-align:center;color:var(--muted)}
+</style>
 
-</body></html>
+<div class="wrap">
+  <header>
+    <h1>Garment Editing Studio</h1>
+    <p>Pick a base garment on the body, grab the red handle and drag to edit it (hemline, neckline, sleeve). Each pose is a
+       real cloth simulation — dragging snaps to the nearest precomputed drape — and the flat sewing panels on the right
+       redraw as you edit. Drag the background to rotate · scroll to zoom.</p>
+  </header>
+  <div class="tabs" id="tabs">
+    <button data-g="skirt" aria-selected="true">Skirt</button>
+    <button data-g="top">Top</button>
+    <button data-g="pants" disabled title="coming soon">Pants (soon)</button>
+  </div>
+  <div class="layout">
+    <div class="card"><div class="stage" id="stage"><div class="hint" id="hint"></div>
+      <div class="handle" id="hA"><b>↕</b></div><div class="handle" id="hB"><b>↕</b></div></div></div>
+    <div class="card"><h2 id="ptitle">Flat sewing panels</h2><div class="panelrow" id="panels"></div>
+      <div class="readout" id="readout"></div></div>
+  </div>
+  <p class="note" id="note"></p>
+</div>
+<p style="max-width:1180px;margin:10px auto 0;padding:0 16px;font-size:.78rem;color:#8a8f99">Other interactive figures: <a href="all.html" style="color:#2a7d55">pipeline · hem predictor · more</a></p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const getCSS=v=>getComputedStyle(document.body).getPropertyValue(v).trim()||'#888';
+let BUF,MAN,PAN,renderer,scene,cam,bodyMesh,garMesh,garCache={},az=0.0,el=0.08,radius,target=new THREE.Vector3();
+let G=null, cur={}, anchors={A:new THREE.Vector3(),B:new THREE.Vector3()}, raf=null;
+
+// ------- per-garment configuration -------
+const GARMENTS={
+  skirt:{ scene:'skirt3d/scene.json', cloth:'--cloth',
+    note:'The skirt is a real cloth simulation on the body for a grid of front-hem settings. Drag a hem handle: down lengthens the front, up shortens it. Only the front hem changes — in the cloth and in the flat panels.',
+    // 2-D grid of nodes (iy,jy) over front-hem control points y1,y2
+    dof:['y1','y2'], start:{y1:-0.3,y2:-0.3},
+    handles:[['hA','y1','front-left hem'],['hB','y2','front-right hem']],
+    drag:{min:-0.9,max:-0.3,scale:0.004,invert:true},  // down(+dy) -> more negative -> longer
+    nodesFrom:m=>m.nodes,
+    nearest:(nodes,c)=>{let b=nodes[0],bd=1e9;for(const n of nodes){const d=(n.y1-c.y1)**2+(n.y2-c.y2)**2;if(d<bd){bd=d;b=n;}}return b;},
+    cellKey:n=>n.iy+'_'+n.jy, setCur:(c,n)=>{c.y1=n.y1;c.y2=n.y2;},
+    anchors:computeSkirtAnchors, panels:drawSkirtPanels,
+    readout:c=>`front-hem y1 <b>${c.y1.toFixed(2)}</b> · y2 <b>${c.y2.toFixed(2)}</b>` },
+  top:{ scene:'shirt3d_studio/scene.json', panelsFile:'shirt3d_studio/grid_panels.json', cloth:'--cloth',
+    note:'A sleeved shirt simulated over a grid of four edit parameters. Drag the neckline handle down to deepen the neck, or the sleeve handle out to lengthen the sleeve; width and back-neck are held at a modest default. The front bodice and sleeve panels redraw as you edit.',
+    dof:['sleeve_len','fc_depth'], start:{sleeve_len:0.50,fc_depth:0.45},
+    handles:[['hA','fc_depth','neckline depth'],['hB','sleeve_len','sleeve length']],
+    drag:null, // custom per-handle below
+    nodesFrom:m=>m.cells.filter(c=>c.valid),
+    nearest:(cells,c)=>{ // match sleeve_len + fc_depth indices; fix width,bc at middle index
+      const ax=MAN.axes,or=MAN.order;
+      const si=nearestIdx(ax.sleeve_len,c.sleeve_len), fi=nearestIdx(ax.fc_depth,c.fc_depth);
+      const wi=Math.floor((ax.width.length-1)/2), bi=Math.floor((ax.bc_depth.length-1)/2);
+      return cells.find(z=>z.idx[0]===si&&z.idx[1]===fi&&z.idx[2]===wi&&z.idx[3]===bi)||cells[0]; },
+    cellKey:n=>'c'+n.idx.join(''), setCur:(c,n)=>{c.sleeve_len=MAN.axes.sleeve_len[n.idx[0]];c.fc_depth=MAN.axes.fc_depth[n.idx[1]];c._key=n.idx.join('');},
+    anchors:computeTopAnchors, panels:drawTopPanels,
+    readout:c=>`sleeve length <b>${c.sleeve_len.toFixed(2)}</b> · neckline depth <b>${c.fc_depth.toFixed(2)}</b>` }
+};
+function nearestIdx(arr,v){let bi=0,bd=1e9;arr.forEach((a,i)=>{const d=Math.abs(a-v);if(d<bd){bd=d;bi=i;}});return bi;}
+
+// ------- geometry decode -------
+function b64buf(s){const bin=atob(s),n=bin.length,u=new Uint8Array(n);for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i);return u.buffer;}
+function deq(e){const lo=MAN.bboxMin,hi=MAN.bboxMax,sx=hi[0]-lo[0],sy=hi[1]-lo[1],sz=hi[2]-lo[2];
+  const q=new Uint16Array(BUF,e.vOff,e.vCount*3),pos=new Float32Array(e.vCount*3);
+  for(let i=0;i<e.vCount;i++){pos[i*3]=lo[0]+q[i*3]/65535*sx;pos[i*3+1]=lo[1]+q[i*3+1]/65535*sy;pos[i*3+2]=lo[2]+q[i*3+2]/65535*sz;}
+  return {pos,idx:new Uint16Array(BUF,e.fOff,e.fCount*3).slice()};}
+function mkMesh(g,col,isBody){const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(g.pos,3));geo.setIndex(new THREE.BufferAttribute(g.idx,1));geo.computeVertexNormals();
+  return new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:new THREE.Color(col),roughness:isBody?0.95:0.72,metalness:0,side:isBody?THREE.FrontSide:THREE.DoubleSide}));}
+function bboxOf(pos){let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];for(let i=0;i<pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],pos[i+k]);mx[k]=Math.max(mx[k],pos[i+k]);}return{mn,mx};}
+
+// ------- GL setup (once) -------
+function ensureGL(){
+  if(renderer) return;
+  const stage=document.getElementById('stage');
+  renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); stage.appendChild(renderer.domElement);
+  scene=new THREE.Scene();
+  const dark=matchMedia('(prefers-color-scheme:dark)').matches && !document.documentElement.dataset.theme || document.documentElement.dataset.theme==='dark';
+  scene.background=new THREE.Color(dark?0x20242b:0xe4e0d6);
+  scene.add(new THREE.HemisphereLight(0xffffff,0x585858,0.9));
+  const d1=new THREE.DirectionalLight(0xffffff,0.85);d1.position.set(1,1.4,1.2);scene.add(d1);
+  const d2=new THREE.DirectionalLight(0xffffff,0.35);d2.position.set(-1,0.4,-0.8);scene.add(d2);
+  cam=new THREE.PerspectiveCamera(36,1,1,8000);
+  orbit(stage); resize(); addEventListener('resize',resize);
+  renderer.setAnimationLoop(renderLoop);
+}
+
+async function selectGarment(name){
+  document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.g===name));
+  const cfg=GARMENTS[name]; if(!cfg) return;
+  document.getElementById('note').innerHTML='<b>What you are seeing.</b> '+cfg.note;
+  const stage=document.getElementById('stage');
+  try{
+    const m=await fetch(cfg.scene).then(r=>r.json()); MAN=m; BUF=b64buf(m.geomB64);
+    PAN = cfg.panelsFile ? await fetch(cfg.panelsFile).then(r=>r.json()).catch(()=>null) : null;
+  }catch(e){ stage.querySelector('.hint').textContent='Could not load this garment.'; return; }
+  ensureGL();
+  G=cfg; cur=Object.assign({},cfg.start); garCache={};
+  if(garMesh){scene.remove(garMesh);garMesh=null;}
+  if(bodyMesh){scene.remove(bodyMesh);bodyMesh=null;}
+  const body=deq(MAN.body); bodyMesh=mkMesh(body,new THREE.Color(getCSS('--skin')),true); scene.add(bodyMesh);
+  const bb=bboxOf(body.pos); const W=bb.mx[0]-bb.mn[0],H=bb.mx[1]-bb.mn[1];
+  if(name==='top'){ target.set((bb.mn[0]+bb.mx[0])/2, bb.mn[1]+H*0.69, (bb.mn[2]+bb.mx[2])/2); radius=Math.max(W,H*0.5)*1.9; }
+  else { target.set((bb.mn[0]+bb.mx[0])/2,(bb.mn[1]+bb.mx[1])/2,(bb.mn[2]+bb.mx[2])/2); radius=Math.max(H,W)*1.55; }
+  // handle labels
+  document.getElementById('hint').textContent='drag a red handle to edit · drag background to rotate';
+  applyNearest(true);
+  bindHandles();
+}
+
+function currentNodes(){return G.nodesFrom(MAN);}
+function applyNearest(first){
+  const n=G.nearest(currentNodes(),cur); G.setCur(cur,n);
+  const key=G.cellKey(n);
+  if(garMesh)garMesh.visible=false;
+  if(!garCache[key]) garCache[key]=mkMesh(deq(n),new THREE.Color(getCSS(G.cloth)),false);
+  garMesh=garCache[key]; if(!garMesh.parent)scene.add(garMesh); garMesh.visible=true; garMesh._node=n;
+  G.anchors(); G.panels(); document.getElementById('readout').innerHTML=G.readout(cur);
+}
+
+// ------- anchors (where the handles sit) -------
+function computeSkirtAnchors(){
+  const pos=garMesh.geometry.attributes.position.array; let cx=0,n=0,zmax=-1e9,zmin=1e9;
+  for(let i=0;i<pos.length;i+=3){cx+=pos[i];n++;zmax=Math.max(zmax,pos[i+2]);zmin=Math.min(zmin,pos[i+2]);}
+  cx/=n;const zt=zmax-0.4*(zmax-zmin);let lY=1e9,rY=1e9,lp=null,rp=null;
+  for(let i=0;i<pos.length;i+=3){if(pos[i+2]<zt)continue;const x=pos[i],y=pos[i+1];
+    if(x<cx&&y<lY){lY=y;lp=[x,y,pos[i+2]];}if(x>=cx&&y<rY){rY=y;rp=[x,y,pos[i+2]];}}
+  if(lp)anchors.A.set(lp[0],lp[1]+3,lp[2]); if(rp)anchors.B.set(rp[0],rp[1]+3,rp[2]);
+}
+function computeTopAnchors(){
+  const pos=garMesh.geometry.attributes.position.array;
+  // neckline anchor: highest front-centre garment point (max y near x~0, z>0)
+  let ny=-1e9,np=null, cuf=1e9,cp=null, xmax=-1e9;
+  for(let i=0;i<pos.length;i+=3)xmax=Math.max(xmax,Math.abs(pos[i]));
+  for(let i=0;i<pos.length;i+=3){const x=pos[i],y=pos[i+1],z=pos[i+2];
+    if(z>0&&Math.abs(x)<xmax*0.22&&y>ny){ny=y;np=[x,y,z];}      // neckline centre-front
+    if(x>xmax*0.6&&y<cuf){cuf=y;cp=[x,y,z];}}                   // right sleeve cuff (lowest far-right)
+  if(np)anchors.A.set(np[0],np[1]+2,np[2]); if(cp)anchors.B.set(cp[0]+2,cp[1],cp[2]);
+}
+
+// ------- 3-D loop + handles -------
+function renderLoop(){const e=clamp(el,-0.35,1.1);
+  cam.position.set(target.x+radius*Math.sin(az)*Math.cos(e),target.y+radius*Math.sin(e),target.z+radius*Math.cos(az)*Math.cos(e));
+  cam.lookAt(target); renderer.render(scene,cam); placeHandles();}
+function placeHandles(){ if(!G)return; const r=renderer.domElement.getBoundingClientRect();
+  G.handles.forEach(([id],k)=>{const a=k===0?anchors.A:anchors.B; const v=a.clone().project(cam);
+    const x=(v.x*0.5+0.5)*r.width,y=(-v.y*0.5+0.5)*r.height; const h=document.getElementById(id);
+    h.style.left=x+'px';h.style.top=y+'px';h.style.display=(v.z<1 && a.lengthSq()>0)?'block':'none';});
+}
+function resize(){const s=document.getElementById('stage');renderer.setSize(s.clientWidth,s.clientHeight,false);cam.aspect=s.clientWidth/s.clientHeight;cam.updateProjectionMatrix();}
+function orbit(stage){let drag=false,px,py;
+  stage.addEventListener('pointerdown',e=>{if(e.target.classList.contains('handle'))return;drag=true;px=e.clientX;py=e.clientY;stage.setPointerCapture(e.pointerId);});
+  stage.addEventListener('pointermove',e=>{if(!drag)return;az-=(e.clientX-px)*0.01;el+=(e.clientY-py)*0.01;px=e.clientX;py=e.clientY;});
+  stage.addEventListener('pointerup',()=>drag=false);
+  stage.addEventListener('wheel',e=>{e.preventDefault();radius=clamp(radius*(1+Math.sign(e.deltaY)*0.08),30,3000);},{passive:false});}
+function bindHandles(){
+  G.handles.forEach(([id,dofk,label],k)=>{const h=document.getElementById(id); h.title=label; h.onpointerdown=null;
+    h.addEventListener('pointerdown',e=>{e.stopPropagation();h.setPointerCapture(e.pointerId);
+      const y0=e.clientY, v0=cur[dofk];
+      const mv=ev=>{const dy=ev.clientY-y0; let nv;
+        if(dofk==='y1'||dofk==='y2'){ nv=clamp(v0 - dy*0.004, -0.9, -0.3); }
+        else if(dofk==='fc_depth'){ nv=clamp(v0 + dy*0.004, MAN.axes.fc_depth[0], MAN.axes.fc_depth[MAN.axes.fc_depth.length-1]); } // down=deeper
+        else if(dofk==='sleeve_len'){ nv=clamp(v0 - dy*0.004, MAN.axes.sleeve_len[0], MAN.axes.sleeve_len[MAN.axes.sleeve_len.length-1]); } // down=longer
+        else nv=v0;
+        cur[dofk]=nv; applyNearest(false);};
+      const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);};
+      addEventListener('pointermove',mv);addEventListener('pointerup',up);});
+  });
+  // stash garment name for the map
+  G.name=document.querySelector('#tabs button[aria-selected=true]').dataset.g;
+}
+
+// ------- 2-D panels -------
+function svgFrame(id){const el=document.getElementById(id);return el;}
+function panelSVG(outline,title,opts){
+  const o=outline; let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+  o.forEach(p=>{minx=Math.min(minx,p[0]);maxx=Math.max(maxx,p[0]);miny=Math.min(miny,p[1]);maxy=Math.max(maxy,p[1]);});
+  const pad=8;minx-=pad;maxx+=pad;miny-=pad;maxy+=pad;const W=200,H=240;
+  const sx=x=>(x-minx)/(maxx-minx)*W, sy=y=>H-(y-miny)/(maxy-miny)*H;
+  let g=`<text x="4" y="12" font-size="9" fill="var(--muted)" font-family="var(--mono)">${title}</text>`;
+  for(let gx=Math.ceil(minx/10)*10;gx<=maxx;gx+=10)g+=`<line x1="${sx(gx).toFixed(1)}" y1="0" x2="${sx(gx).toFixed(1)}" y2="${H}" stroke="var(--grid)" stroke-width=".5"/>`;
+  for(let gy=Math.ceil(miny/10)*10;gy<=maxy;gy+=10)g+=`<line x1="0" y1="${sy(gy).toFixed(1)}" x2="${W}" y2="${sy(gy).toFixed(1)}" stroke="var(--grid)" stroke-width=".5"/>`;
+  let d='M '+o.map((p,i)=>(i?'L ':'')+sx(p[0]).toFixed(1)+' '+sy(p[1]).toFixed(1)).join(' ')+' Z';
+  g+=`<path d="${d}" fill="${opts.col}" fill-opacity="0.10" stroke="${opts.col}" stroke-width="2.2"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}</svg>`;
+}
+function drawSkirtPanels(){
+  const edited=(cur.y1!==-0.3||cur.y2!==-0.3);
+  document.getElementById('ptitle').textContent='Flat sewing panels (front · back)';
+  document.getElementById('panels').innerHTML=
+    skirtPanelSVG(MAN.panels.front,cur.y1,cur.y2,edited,'front hem')+
+    skirtPanelSVG(MAN.panels.back,null,null,false,'back');
+}
+function skirtPanelSVG(panel,y1,y2,edited,title){
+  const v=panel.verts,hc=panel.hem_cubic;
+  const yy1=(y1!=null)?y1:hc[0][1], yy2=(y2!=null)?y2:hc[1][1];
+  const p1=v[1],p2=v[2],ex=p2[0]-p1[0],ey=p2[1]-p1[1],L=Math.hypot(ex,ey),px=-ey/L,py=ex/L;
+  const c1=[p1[0]+0.35*ex+yy1*L*px,p1[1]+0.35*ey+yy1*L*py],c2=[p1[0]+0.65*ex+yy2*L*px,p1[1]+0.65*ey+yy2*L*py];
+  const cyd=[0,yy1,yy2].map(t=>t*L); const xs=v.map(p=>p[0]);
+  let minx=Math.min(...xs)-8,maxx=Math.max(...xs)+8,miny=Math.min(...cyd)-10,maxy=10;
+  const W=200,H=240,sx=x=>(x-minx)/(maxx-minx)*W,sy=y=>H-(y-miny)/(maxy-miny)*H,col=edited?getCSS('--edit'):getCSS('--base');
+  let g=`<text x="4" y="12" font-size="9" fill="var(--muted)" font-family="var(--mono)">${title}</text>`;
+  for(let gx=Math.ceil(minx/10)*10;gx<=maxx;gx+=10)g+=`<line x1="${sx(gx).toFixed(1)}" y1="0" x2="${sx(gx).toFixed(1)}" y2="${H}" stroke="var(--grid)" stroke-width=".5"/>`;
+  for(let gy=Math.ceil(miny/10)*10;gy<=maxy;gy+=10)g+=`<line x1="0" y1="${sy(gy).toFixed(1)}" x2="${W}" y2="${sy(gy).toFixed(1)}" stroke="var(--grid)" stroke-width=".5"/>`;
+  const d=`M ${sx(v[0][0])} ${sy(v[0][1])} L ${sx(v[1][0])} ${sy(v[1][1])} C ${sx(c1[0])} ${sy(c1[1])} ${sx(c2[0])} ${sy(c2[1])} ${sx(p2[0])} ${sy(p2[1])} L ${sx(v[3][0])} ${sy(v[3][1])} Z`;
+  g+=`<path d="${d}" fill="${col}" fill-opacity="0.10" stroke="${col}" stroke-width="2.2"/>`;
+  if(y1!=null)[c1,c2].forEach(p=>g+=`<circle cx="${sx(p[0])}" cy="${sy(p[1])}" r="4" fill="${getCSS('--edit')}" stroke="#fff" stroke-width="1.2"/>`);
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}</svg>`;
+}
+function drawTopPanels(){
+  document.getElementById('ptitle').textContent='Flat sewing panels (front bodice · sleeve)';
+  const box=document.getElementById('panels');
+  if(!PAN||!garMesh._node){box.innerHTML='<div class="loading">panel outlines unavailable for this garment</div>';return;}
+  const idx=garMesh._node.idx, key=idx.join(''), cell=PAN.cells[key];
+  if(!cell){box.innerHTML='<div class="loading">panel outlines unavailable</div>';return;}
+  const edited=(idx[0]!==0||idx[1]!==0);               // sleeve length or neckline depth changed from the base
+  const col=edited?getCSS('--edit'):getCSS('--base');
+  const titles={right_ftorso:'front bodice',right_sleeve_f:'sleeve'};
+  box.innerHTML=PAN.keep.map(nm=>panelSVG(cell.panels[nm],titles[nm]||nm,{col})).join('');
+}
+
+// ------- boot -------
+document.querySelectorAll('#tabs button[data-g]').forEach(b=>{ if(!b.disabled) b.addEventListener('click',()=>selectGarment(b.dataset.g)); });
+if(typeof THREE==='undefined'){document.getElementById('stage').innerHTML='<div class="loading">3-D library did not load.</div>';}
+else selectGarment('skirt');
+</script>
