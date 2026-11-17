@@ -1,0 +1,128 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sleeved Shirt Studio</title>
+<meta name="description" content="Move the four edit parameters of a sleeved shirt (sleeve length, neckline depth/width) and see the real draped garment on the body.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{ --paper:#edeae3; --panel:#f7f6f2; --ink:#1b2130; --muted:#5c6472; --line:#c9c6bd; --scene:#e4e0d6; --accent:#2a7d55;
+    --fs:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace; }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842; --scene:#23262d; --accent:#3fa06d; color-scheme:dark;}}
+  :root[data-theme="dark"]{ --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842; --scene:#23262d; --accent:#3fa06d; color-scheme:dark;}
+  *{box-sizing:border-box} body{background:var(--paper);color:var(--ink);font-family:var(--fs);line-height:1.45}
+  .wrap{max-width:960px;margin:0 auto;padding:20px 16px}
+  h1{font-size:1.4rem;margin:0 0 2px} header p{margin:0;color:var(--muted);font-size:.9rem;max-width:72ch}
+  .studio{display:flex;flex-wrap:wrap;gap:16px;margin-top:16px;align-items:stretch}
+  .cvwrap{flex:1 1 360px;min-width:300px;background:var(--scene);border:1px solid var(--line);border-radius:12px;overflow:hidden;position:relative;aspect-ratio:1/1;touch-action:none}
+  .cvwrap canvas{display:block;width:100%;height:100%}
+  .cvwrap .badge{position:absolute;left:10px;top:10px;font:.75rem/1.3 var(--mono);color:var(--muted);background:color-mix(in srgb,var(--panel) 80%,transparent);padding:4px 7px;border-radius:7px;border:1px solid var(--line)}
+  .cvwrap .warn{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;color:#b84a3a;font-size:.9rem;padding:20px}
+  .panel{flex:1 1 300px;min-width:260px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .ctrl{margin:12px 0}
+  .ctrl .lab{display:flex;justify-content:space-between;font-size:.86rem;margin-bottom:4px}
+  .ctrl .lab b{font-weight:600} .ctrl .lab span{font-family:var(--mono);color:var(--accent)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .presets{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+  .presets button{font:.8rem var(--fs);padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink);cursor:pointer}
+  .presets button:hover{border-color:var(--accent)}
+  .hint{margin-top:10px;font-size:.78rem;color:var(--muted)}
+  .note{margin-top:16px;font-size:.8rem;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;max-width:78ch}
+  .note b{color:var(--ink)} .loading{padding:40px;text-align:center;color:var(--muted)}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Sleeved Shirt Studio</h1>
+    <p>Move the four edit parameters and see the real draped sleeved shirt on the body. The sliders snap to the nearest
+       precomputed cloth simulation — the browser does not simulate cloth. Drag the figure to rotate · scroll to zoom.</p>
+  </header>
+  <div id="app" class="loading">Loading drapes…</div>
+  <p class="note" id="note" hidden></p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let MAN,BUF,az=-0.0,el=0.08,radius,target,rnd,scene,cam,bodyMesh,garMesh,bodyG,cloth;
+const LABELS={sleeve_len:'Sleeve length',fc_depth:'Front neckline depth',width:'Neckline width',bc_depth:'Back neckline depth'};
+function b64buf(s){const bin=atob(s),n=bin.length,u=new Uint8Array(n);for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i);return u.buffer;}
+fetch('scene.json').then(r=>r.json()).then(m=>{MAN=m;BUF=b64buf(m.geomB64);boot();}).catch(()=>{document.getElementById('app').textContent='Could not load the scene.';});
+
+function deq(e){const lo=MAN.bboxMin,hi=MAN.bboxMax,sx=hi[0]-lo[0],sy=hi[1]-lo[1],sz=hi[2]-lo[2];
+  const q=new Uint16Array(BUF,e.vOff,e.vCount*3),pos=new Float32Array(e.vCount*3);
+  for(let i=0;i<e.vCount;i++){pos[i*3]=lo[0]+q[i*3]/65535*sx;pos[i*3+1]=lo[1]+q[i*3+1]/65535*sy;pos[i*3+2]=lo[2]+q[i*3+2]/65535*sz;}
+  return {pos,idx:new Uint16Array(BUF,e.fOff,e.fCount*3).slice()};}
+function mkMesh(g,col,isBody){const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(g.pos,3));geo.setIndex(new THREE.BufferAttribute(g.idx,1));geo.computeVertexNormals();
+  return new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:new THREE.Color(col),roughness:isBody?0.9:0.7,metalness:0,side:isBody?THREE.FrontSide:THREE.DoubleSide}));}
+function cellAt(idx){return MAN.cells.find(c=>c.idx[0]===idx[0]&&c.idx[1]===idx[1]&&c.idx[2]===idx[2]&&c.idx[3]===idx[3]);}
+
+function boot(){
+  const app=document.getElementById('app'); app.classList.remove('loading');
+  cloth=new THREE.Color(MAN.cloth[0],MAN.cloth[1],MAN.cloth[2]);
+  let sliders='';
+  MAN.order.forEach((k,ai)=>{const vals=MAN.axes[k];
+    sliders+=`<div class="ctrl"><div class="lab"><b>${LABELS[k]}</b><span id="v${ai}"></span></div>`+
+      `<input type="range" id="s${ai}" min="0" max="${vals.length-1}" step="1" value="${ai===0?vals.length-1:Math.floor((vals.length-1)/2)}"></div>`;});
+  app.innerHTML=`<div class="studio">
+      <div class="cvwrap" id="cvwrap"><div class="badge" id="badge"></div><div class="warn" id="warn">No valid drape for this exact combination — try a nearby setting.</div></div>
+      <div class="panel">${sliders}
+        <div class="presets">
+          <button data-p="short">Short-sleeve high neck</button>
+          <button data-p="long">Long-sleeve deep neck</button>
+        </div>
+        <p class="hint">Each slider is one edit parameter; it snaps to the nearest precomputed drape.</p>
+      </div></div>`;
+  const cv=document.getElementById('cvwrap');
+  rnd=new THREE.WebGLRenderer({antialias:true}); rnd.setPixelRatio(Math.min(devicePixelRatio,2)); cv.appendChild(rnd.domElement);
+  scene=new THREE.Scene();
+  const dark=matchMedia('(prefers-color-scheme:dark)').matches && !document.documentElement.dataset.theme || document.documentElement.dataset.theme==='dark';
+  scene.background=new THREE.Color(dark?0x23262d:0xe4e0d6);
+  scene.add(new THREE.HemisphereLight(0xffffff,0x606060,0.95));
+  const d1=new THREE.DirectionalLight(0xffffff,0.9); d1.position.set(1,1.4,1.2); scene.add(d1);
+  const d2=new THREE.DirectionalLight(0xffffff,0.4); d2.position.set(-1,0.4,-0.8); scene.add(d2);
+  bodyG=deq(MAN.body); bodyMesh=mkMesh(bodyG,0xc8b6a6,true); scene.add(bodyMesh);
+  let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+  for(let i=0;i<bodyG.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],bodyG.pos[i+k]);mx[k]=Math.max(mx[k],bodyG.pos[i+k]);}
+  const W=mx[0]-mn[0],Hh=mx[1]-mn[1];
+  target=new THREE.Vector3((mn[0]+mx[0])/2,mn[1]+Hh*0.69,(mn[2]+mx[2])/2);
+  radius=Math.max(W,Hh*0.5)*1.9;
+  cam=new THREE.PerspectiveCamera(34,1,1,8000);
+  MAN.order.forEach((k,ai)=>document.getElementById('s'+ai).addEventListener('input',update));
+  document.querySelectorAll('.presets button').forEach(b=>b.addEventListener('click',()=>applyPreset(b.dataset.p)));
+  orbit(cv);
+  document.getElementById('note').hidden=false;
+  document.getElementById('note').innerHTML='<b>Note.</b> A precomputed grid of real cloth simulations over the four-parameter '+
+    'sleeved-shirt edit space (sleeve length, front and back neckline depth, neckline width). The sliders select the nearest '+
+    'simulated drape; a few combinations are invalid under the simulator checks and are reported as such.';
+  update(); resize(); addEventListener('resize',resize);
+  (function loop(){const e=clamp(el,-0.3,1.0);
+    cam.position.set(target.x+radius*Math.sin(az)*Math.cos(e),target.y+radius*Math.sin(e),target.z+radius*Math.cos(az)*Math.cos(e));
+    cam.lookAt(target); rnd.render(scene,cam); requestAnimationFrame(loop);})();
+}
+function update(){
+  const idx=MAN.order.map((k,ai)=>+document.getElementById('s'+ai).value);
+  MAN.order.forEach((k,ai)=>document.getElementById('v'+ai).textContent=(+MAN.axes[k][idx[ai]]).toFixed(2));
+  const c=cellAt(idx);
+  if(garMesh){scene.remove(garMesh);garMesh.geometry.dispose();garMesh=null;}
+  const warn=document.getElementById('warn');
+  if(c&&c.valid){warn.style.display='none';garMesh=mkMesh(deq(c),cloth,false);scene.add(garMesh);}
+  else{warn.style.display='flex';}
+  document.getElementById('badge').textContent='θ = ('+idx.map((v,ai)=>(+MAN.axes[MAN.order[ai]][v]).toFixed(2)).join(', ')+')';
+}
+function applyPreset(p){
+  const map=p==='short'?{sleeve_len:0.20,fc_depth:0.45,width:0.10,bc_depth:0.35}
+                       :{sleeve_len:1.10,fc_depth:0.95,width:0.28,bc_depth:0.58};
+  MAN.order.forEach((k,ai)=>{const vals=MAN.axes[k];let bi=0,bd=1e9;
+    vals.forEach((v,i)=>{const dd=Math.abs(v-map[k]);if(dd<bd){bd=dd;bi=i;}});
+    document.getElementById('s'+ai).value=bi;});
+  update();
+}
+function orbit(el_){let drag=false,px,py;
+  el_.addEventListener('pointerdown',e=>{if(e.target.tagName==='INPUT')return;drag=true;px=e.clientX;py=e.clientY;el_.setPointerCapture(e.pointerId);});
+  el_.addEventListener('pointermove',e=>{if(!drag)return;az-=(e.clientX-px)*0.01;el+=(e.clientY-py)*0.01;px=e.clientX;py=e.clientY;});
+  el_.addEventListener('pointerup',()=>drag=false);
+  el_.addEventListener('wheel',e=>{e.preventDefault();radius=clamp(radius*(1+Math.sign(e.deltaY)*0.08),30,3000);},{passive:false});}
+function resize(){const cv=document.getElementById('cvwrap');const w=cv.clientWidth,h=cv.clientHeight;rnd.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();}
+</script>
