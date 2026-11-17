@@ -1,0 +1,127 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+</head><body>
+<title>Edit Pipeline 3D</title>
+<meta name="description" content="The skirt-edit pipeline on the body in 3D: original, target, direct, learned init, ours.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{ --paper:#edeae3; --panel:#f7f6f2; --ink:#1b2130; --muted:#5c6472; --line:#c9c6bd;
+    --scene:#e4e0d6; --grid:#d3d0c7; --edit:#c0392b; --base:#9aa0ab;
+    --fs:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace; }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842; --scene:#23262d; --grid:#2a2e36; --base:#79818f; color-scheme:dark;}}
+  :root[data-theme="dark"]{ --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842; --scene:#23262d; --grid:#2a2e36; --base:#79818f; color-scheme:dark;}
+  *{box-sizing:border-box} body{background:var(--paper);color:var(--ink);font-family:var(--fs);line-height:1.45}
+  .wrap{max-width:1120px;margin:0 auto;padding-block:20px;padding-left:16px;padding-right:16px}
+  h1{font-size:1.4rem;margin:0 0 2px} header p{margin:0;color:var(--muted);font-size:.9rem;max-width:70ch}
+  .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:flex-start}
+  .stage{flex:1 1 170px;min-width:150px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 6px 6px}
+  .stage .cv{position:relative;width:100%;aspect-ratio:3/4;border-radius:7px;overflow:hidden;background:var(--scene);touch-action:none}
+  .stage canvas{display:block;width:100%;height:100%}
+  .stage .t{font-size:.84rem;font-weight:600;text-align:center;margin-top:5px}
+  .stage .s{font-size:.75rem;color:var(--muted);text-align:center;font-family:var(--mono)}
+  .panelbox{margin-top:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .panelbox svg{width:240px;max-width:100%;height:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+  .panelbox .lab{font-size:.85rem;color:var(--muted)}
+  .hint{margin-top:10px;font-size:.8rem;color:var(--muted)}
+  .note{margin-top:16px;font-size:.8rem;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;max-width:74ch}
+  .note b{color:var(--ink)} .loading{padding:40px;text-align:center;color:var(--muted)}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Edit Pipeline 3D</h1>
+    <p>The same skirt edit through the pipeline, worn on the body. Drag any figure to rotate them all together.
+       Original → desired target → direct optimization (small budget) → learned initialization → ours (init + correction).</p>
+  </header>
+  <div id="app" class="loading">Loading figures…</div>
+  <p class="note" id="note" hidden></p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let MAN,BUF,views=[],az=0.42,el=0.12,radius,target;
+function b64buf(s){const bin=atob(s),n=bin.length,u=new Uint8Array(n);for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i);return u.buffer;}
+fetch('pipeline.json').then(r=>r.json()).then(m=>{MAN=m;BUF=b64buf(m.geomB64);boot();}).catch(()=>{document.getElementById('app').textContent='Could not load the scene.';});
+
+function deq(e){const lo=MAN.bboxMin,hi=MAN.bboxMax,sx=hi[0]-lo[0],sy=hi[1]-lo[1],sz=hi[2]-lo[2];
+  const q=new Uint16Array(BUF,e.vOff,e.vCount*3),pos=new Float32Array(e.vCount*3);
+  for(let i=0;i<e.vCount;i++){pos[i*3]=lo[0]+q[i*3]/65535*sx;pos[i*3+1]=lo[1]+q[i*3+1]/65535*sy;pos[i*3+2]=lo[2]+q[i*3+2]/65535*sz;}
+  return {pos,idx:new Uint16Array(BUF,e.fOff,e.fCount*3).slice()};}
+function getCSS(v){return getComputedStyle(document.body).getPropertyValue(v).trim()||'#888';}
+function meshOf(g,col,isBody){const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(g.pos,3));geo.setIndex(new THREE.BufferAttribute(g.idx,1));geo.computeVertexNormals();
+  return new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:new THREE.Color(col),roughness:isBody?0.9:0.75,metalness:0,side:isBody?THREE.FrontSide:THREE.DoubleSide}));}
+
+function boot(){
+  const app=document.getElementById('app'); app.classList.remove('loading');
+  let html='<div class="row" id="row"></div>'+
+    '<div class="panelbox"><div><svg id="pf" viewBox="0 0 240 230"></svg><div class="lab" style="text-align:center">front panel (grey original, red edited)</div></div>'+
+    '<div class="lab">Only the front-hem control points move; the back panel and side seams are unchanged.</div></div>'+
+    '<p class="hint">Drag to rotate · scroll to zoom. Tip: rotate to a 3/4 angle and use your system screenshot to capture the pipeline.</p>';
+  app.innerHTML=html;
+  const row=document.getElementById('row');
+  const bodyG=deq(MAN.body);
+  // shared framing from the body
+  let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+  for(let i=0;i<bodyG.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],bodyG.pos[i+k]);mx[k]=Math.max(mx[k],bodyG.pos[i+k]);}
+  target=new THREE.Vector3((mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2);
+  radius=Math.max(mx[1]-mn[1],mx[0]-mn[0])*1.5;
+  if(typeof THREE==='undefined'){row.innerHTML='<div class="loading">3-D library did not load.</div>';}
+  else MAN.stages.forEach(st=>{
+    const cell=document.createElement('div'); cell.className='stage';
+    cell.innerHTML=`<div class="cv"></div><div class="t">${st.title}</div><div class="s">${st.sub}</div>`;
+    row.appendChild(cell);
+    const cv=cell.querySelector('.cv');
+    const rnd=new THREE.WebGLRenderer({antialias:true}); rnd.setPixelRatio(Math.min(devicePixelRatio,2)); cv.appendChild(rnd.domElement);
+    const sc=new THREE.Scene();
+    const dark=matchMedia('(prefers-color-scheme:dark)').matches && !document.documentElement.dataset.theme || document.documentElement.dataset.theme==='dark';
+    sc.background=new THREE.Color(dark?0x23262d:0xe4e0d6);
+    sc.add(new THREE.HemisphereLight(0xffffff,0x606060,0.95));
+    const d1=new THREE.DirectionalLight(0xffffff,0.9); d1.position.set(1,1.4,1.2); sc.add(d1);
+    const d2=new THREE.DirectionalLight(0xffffff,0.4); d2.position.set(-1,0.4,-0.8); sc.add(d2);
+    sc.add(meshOf(bodyG,0xc8b6a6,true));
+    sc.add(meshOf(deq(st),new THREE.Color(st.color[0],st.color[1],st.color[2]),false));
+    const cam=new THREE.PerspectiveCamera(36,1,1,6000);
+    orbit(cv); views.push({rnd,sc,cam});
+  });
+  buildPanel();
+  document.getElementById('note').hidden=false;
+  document.getElementById('note').innerHTML='<b>Note.</b> These are the precomputed pipeline drapes (original, a known-achievable target, '+
+    'neutral-start direct optimization at a small budget, the learned initialization, and initialization+correction), '+
+    'rendered as a 3-D preview. Direct optimization barely leaves the neutral start at this budget; learned init+correction matches the target.';
+  resizeAll(); addEventListener('resize',resizeAll);
+  (function loop(){const e=clamp(el,-0.3,1.0);
+    for(const v of views){ v.cam.position.set(target.x+radius*Math.sin(az)*Math.cos(e),target.y+radius*Math.sin(e),target.z+radius*Math.cos(az)*Math.cos(e));
+      v.cam.lookAt(target); v.rnd.render(v.sc,v.cam);} requestAnimationFrame(loop);})();
+}
+function orbit(el_){let drag=false,px,py;
+  el_.addEventListener('pointerdown',e=>{drag=true;px=e.clientX;py=e.clientY;el_.setPointerCapture(e.pointerId);});
+  el_.addEventListener('pointermove',e=>{if(!drag)return;az-=(e.clientX-px)*0.01;el+=(e.clientY-py)*0.01;px=e.clientX;py=e.clientY;});
+  el_.addEventListener('pointerup',()=>drag=false);
+  el_.addEventListener('wheel',e=>{e.preventDefault();radius=clamp(radius*(1+Math.sign(e.deltaY)*0.08),40,2000);},{passive:false});}
+function resizeAll(){for(let i=0;i<views.length;i++){const cv=document.querySelectorAll('.cv')[i];const w=cv.clientWidth,h=cv.clientHeight;
+  views[i].rnd.setSize(w,h,false);views[i].cam.aspect=w/h;views[i].cam.updateProjectionMatrix();}}
+
+/* 2D front panel (base grey vs ours red) with 10cm grid */
+function hemCurve(v,y1,y2){const p1=v[1],p2=v[2],ex=p2[0]-p1[0],ey=p2[1]-p1[1],L=Math.hypot(ex,ey),px=-ey/L,py=ex/L;
+  return {c1:[p1[0]+0.35*ex+y1*L*px,p1[1]+0.35*ey+y1*L*py],c2:[p1[0]+0.65*ex+y2*L*px,p1[1]+0.65*ey+y2*L*py],p1,p2};}
+function buildPanel(){
+  const pb=MAN.panel_base,po=MAN.panel_ours;
+  const all=[pb,po]; let minx=1e9,maxx=-1e9,miny=1e9,maxy=1e9*-1;
+  all.forEach(p=>{const v=p.verts,c=hemCurve(v,p.hem_cubic[0][1],p.hem_cubic[1][1]);
+    [...v,c.c1,c.c2].forEach(q=>{minx=Math.min(minx,q[0]);maxx=Math.max(maxx,q[0]);miny=Math.min(miny,q[1]);maxy=Math.max(maxy,q[1]);});});
+  minx-=8;maxx+=8;miny-=10;maxy+=10; const W=240,H=230,sx=x=>(x-minx)/(maxx-minx)*W,sy=y=>H-(y-miny)/(maxy-miny)*H;
+  let g='';for(let gx=Math.ceil(minx/10)*10;gx<=maxx;gx+=10)g+=`<line x1="${sx(gx).toFixed(1)}" y1="0" x2="${sx(gx).toFixed(1)}" y2="${H}" stroke="var(--grid)" stroke-width="0.6"/>`;
+  for(let gy=Math.ceil(miny/10)*10;gy<=maxy;gy+=10)g+=`<line x1="0" y1="${sy(gy).toFixed(1)}" x2="${W}" y2="${sy(gy).toFixed(1)}" stroke="var(--grid)" stroke-width="0.6"/>`;
+  g+=`<text x="4" y="12" font-size="9" fill="var(--muted)" font-family="var(--mono)">grid 10 cm</text>`;
+  [[pb,getCSS('--base'),1.6],[po,getCSS('--edit'),2.4]].forEach(([p,col,lw])=>{const v=p.verts,c=hemCurve(v,p.hem_cubic[0][1],p.hem_cubic[1][1]);
+    g+=`<path d="M ${sx(v[0][0])} ${sy(v[0][1])} L ${sx(v[1][0])} ${sy(v[1][1])} C ${sx(c.c1[0])} ${sy(c.c1[1])} ${sx(c.c2[0])} ${sy(c.c2[1])} ${sx(c.p2[0])} ${sy(c.p2[1])} L ${sx(v[3][0])} ${sy(v[3][1])} Z" fill="${col}" fill-opacity="0.08" stroke="${col}" stroke-width="${lw}"/>`;
+    if(col===getCSS('--edit')){[c.c1,c.c2].forEach(q=>g+=`<circle cx="${sx(q[0])}" cy="${sy(q[1])}" r="4" fill="${getCSS('--edit')}" stroke="#fff" stroke-width="1.2"/>`);}});
+  document.getElementById('pf').innerHTML=g;
+}
+</script>
+
+</body></html>

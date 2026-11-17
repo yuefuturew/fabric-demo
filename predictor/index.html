@@ -1,0 +1,262 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+</head><body>
+<title>Skirt Hem Predictor</title>
+<meta name="description" content="Drag a target hemline; the trained model predicts the skirt pattern edit live.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a two-pane drafting tool — sculpt the hemline (left), read the predicted pattern (right). */
+  :root{
+    --paper:#eceae4; --panel:#f7f6f2; --ink:#1c2230; --muted:#5d6472; --line:#c9c6bd;
+    --base:#8b93a3;            /* neutral / original */
+    --edit:#c0392b;           /* predicted edit (thread red) */
+    --accent:#2f6f6b;         /* model reproduction (teal) */
+    --grid:#d9d6cd; --ok:#2f7d4f; --warn:#b5651d;
+    --fs-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+    --fs-sans:"IBM Plex Sans",system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --paper:#15171c; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842;
+    --base:#79818f; --edit:#e8604f; --accent:#55b3ab; --grid:#2a2e36; --ok:#5fb27f; --warn:#d79450; color-scheme:dark;}}
+  :root[data-theme="dark"]{
+    --paper:#15171c; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842;
+    --base:#79818f; --edit:#e8604f; --accent:#55b3ab; --grid:#2a2e36; --ok:#5fb27f; --warn:#d79450; color-scheme:dark;}
+  *{box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);font-family:var(--fs-sans);line-height:1.45}
+  .wrap{max-width:1040px;margin:0 auto;padding-block:22px;padding-left:16px;padding-right:16px}
+  header h1{font-size:1.5rem;margin:0 0 2px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--muted);font-size:.92rem;max-width:62ch}
+  .tag{display:inline-block;margin-top:8px;font-family:var(--fs-mono);font-size:.72rem;letter-spacing:.04em;
+       text-transform:uppercase;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:2px 9px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
+  @media (max-width:760px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 14px 10px;min-width:0}
+  .card h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 2px}
+  .card .hint{font-size:.8rem;color:var(--muted);margin:0 0 8px}
+  svg{display:block;width:100%;height:auto;touch-action:none}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  button{font-family:var(--fs-sans);font-size:.85rem;color:var(--ink);background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
+  button:hover{border-color:var(--accent)} button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button.primary{background:var(--edit);color:#fff;border-color:var(--edit)}
+  .params{display:flex;flex-direction:column;gap:11px;margin-top:4px}
+  .prow{display:grid;grid-template-columns:150px 1fr 66px;align-items:center;gap:10px}
+  @media (max-width:420px){.prow{grid-template-columns:110px 1fr 60px}}
+  .prow .nm{font-size:.82rem;color:var(--muted)}
+  .prow .val{font-family:var(--fs-mono);text-align:right;font-variant-numeric:tabular-nums}
+  .bar{position:relative;height:8px;background:var(--grid);border-radius:999px}
+  .bar .fill{position:absolute;top:0;bottom:0;left:0;background:var(--edit);border-radius:999px;opacity:.28}
+  .bar .dot{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;background:var(--edit);
+    transform:translate(-50%,-50%);border:2px solid var(--panel)}
+  .readout{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:.85rem}
+  .readout b{font-family:var(--fs-mono);font-variant-numeric:tabular-nums}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.78rem;color:var(--muted);margin-top:8px}
+  .legend i{display:inline-block;width:20px;height:0;border-top-width:3px;border-top-style:solid;vertical-align:middle;margin-right:5px}
+  .note{margin-top:20px;font-size:.82rem;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;max-width:72ch}
+  .note b{color:var(--ink)} .flag{color:var(--warn);font-family:var(--fs-mono);font-size:.78rem}
+  .loading{color:var(--muted);padding:40px 0;text-align:center}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Skirt Hem Predictor</h1>
+    <p>Drag the front hemline into the shape you want. A kernel-ridge model trained on draped skirts predicts the
+       sewing-pattern edit that produces it — the learned initializer, running live with no simulation.</p>
+    <span class="tag">learned initializer · no simulator in the loop</span>
+  </header>
+
+  <div id="app" class="loading">Loading model…</div>
+
+  <p class="note" id="note" hidden></p>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+
+function predict(p, xq){
+  const Xn=p.Xn, A=p.A, mu=p.mu, sd=p.sd, ym=p.ym, ys=p.ys, gm=p.gm;
+  const din=mu.length, dout=ym.length, n=Xn.length;
+  const z=new Float64Array(din); for(let i=0;i<din;i++) z[i]=(xq[i]-mu[i])/sd[i];
+  const out=new Float64Array(dout);
+  for(let j=0;j<n;j++){ const xn=Xn[j]; let d2=0; for(let i=0;i<din;i++){const e=z[i]-xn[i]; d2+=e*e;}
+    const k=Math.exp(-gm*d2); const a=A[j]; for(let o=0;o<dout;o++) out[o]+=k*a[o]; }
+  const r=new Array(dout); for(let o=0;o<dout;o++) r[o]=out[o]*ys[o]+ym[o]; return r;
+}
+
+let M, front, back, NF, NB;
+
+fetch('gc_client_model.json').then(r=>r.json()).then(m=>{ M=m; init(); })
+  .catch(()=>{ $('#app').textContent='Could not load the model file.'; });
+
+function init(){
+  NF=M.nfront; NB=M.nback;
+  back=M.h0.slice(NF);                 // back hem held at neutral (front-only edit)
+  front=M.h0.slice(0,NF).slice();      // editable front hem
+  $('#app').classList.remove('loading');
+  $('#app').innerHTML = `
+    <div class="grid">
+      <div class="card">
+        <h2>Target hemline — front</h2>
+        <p class="hint">Drag the dots. Higher = hem sits higher on the body; lower = longer, scooped hem.</p>
+        <svg id="hem" viewBox="0 0 480 300" preserveAspectRatio="xMidYMid meet" aria-label="front hemline editor"></svg>
+        <div class="legend">
+          <span><i style="border-color:var(--base);border-top-style:dashed"></i>neutral</span>
+          <span><i style="border-color:var(--edit)"></i>your target</span>
+          <span><i style="border-color:var(--accent)"></i>model reproduces</span>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Predicted pattern</h2>
+        <p class="hint">2-D front panel the model drafts for your hemline. Grey = original, red = edited.</p>
+        <svg id="panel" viewBox="0 0 480 240" preserveAspectRatio="xMidYMid meet" aria-label="predicted 2D panel"></svg>
+        <div class="params" id="params"></div>
+        <div class="readout">
+          <span>Reproduction error: <b id="rep">–</b></span>
+          <span>Back hem: <b>held at neutral</b></span>
+        </div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="primary" data-preset="scoop">Front scoop</button>
+      <button data-preset="deep">Deep centre</button>
+      <button data-preset="asym">Asymmetric</button>
+      <button data-preset="short">Raise centre</button>
+      <button data-preset="neutral">Reset to neutral</button>
+    </div>`;
+  $('#note').hidden=false;
+  $('#note').innerHTML = `<b>What this is.</b> The model maps a draped hemline back to four pattern controls —
+    two front-hem control points (y1, y2) and the two side-seam scales (aL, aR). It is the paper's <b>learned
+    initialization</b> step: one prediction, no cloth simulation. On held-out targets this prediction lands within
+    3&nbsp;cm about half the time on its own; the paper's simulation-correction step then reaches 0.7&nbsp;cm / 86%.
+    The panel redraws the front-hem control points exactly; aL and aR are reported as values (they scale the side
+    seams, not drawn here). Predictions outside the trained range are clipped and flagged.`;
+
+  buildHem(); buildParams();
+  document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>applyPreset(b.dataset.preset));
+  recompute();
+}
+
+/* ---------- hemline editor ---------- */
+const HX0=40,HX1=460,HY0=30,HY1=270, VMIN=42,VMAX=104;
+const hx=i=>HX0+(HX1-HX0)*i/(NF-1);
+const hy=v=>HY1-(HY1-HY0)*(v-VMIN)/(VMAX-VMIN);
+const hyInv=py=>VMIN+(VMAX-VMIN)*(HY1-py)/(HY1-HY0);
+const path=(xs,ys)=>xs.map((x,i)=>(i?'L':'M')+x.toFixed(1)+' '+ys[i].toFixed(1)).join(' ');
+
+function buildHem(){
+  const svg=$('#hem'); let g='';
+  for(let k=0;k<=4;k++){const y=HY0+(HY1-HY0)*k/4;
+    g+=`<line x1="${HX0}" y1="${y}" x2="${HX1}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;}
+  g+=`<text x="${HX0}" y="${HY0-10}" fill="var(--muted)" font-size="11" font-family="var(--fs-mono)">hem height</text>`;
+  g+=`<path id="h-neutral" fill="none" stroke="var(--base)" stroke-width="2" stroke-dasharray="5 5"/>`;
+  g+=`<path id="h-repro" fill="none" stroke="var(--accent)" stroke-width="2.5"/>`;
+  g+=`<path id="h-target" fill="none" stroke="var(--edit)" stroke-width="2.5"/>`;
+  g+=`<g id="h-handles"></g>`;
+  svg.innerHTML=g;
+  const neu=M.h0.slice(0,NF);
+  $('#h-neutral').setAttribute('d', path(neu.map((_,i)=>hx(i)), neu.map(hy)));
+  const hg=$('#h-handles');
+  for(let i=0;i<NF;i++){
+    const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('r','6'); c.setAttribute('cx',hx(i)); c.setAttribute('fill','var(--edit)');
+    c.setAttribute('stroke','var(--panel)'); c.setAttribute('stroke-width','1.5');
+    c.style.cursor='ns-resize'; c.dataset.i=i; hg.appendChild(c);
+    c.addEventListener('pointerdown',startDrag);
+  }
+}
+let dragI=-1;
+function toSvgY(svg,clientY){const pt=svg.createSVGPoint();pt.x=0;pt.y=clientY;return pt.matrixTransform(svg.getScreenCTM().inverse()).y;}
+function startDrag(e){dragI=+e.target.dataset.i;e.target.setPointerCapture(e.pointerId);
+  window.addEventListener('pointermove',onDrag);window.addEventListener('pointerup',endDrag);}
+function onDrag(e){ if(dragI<0) return;
+  front[dragI]=clamp(hyInv(toSvgY($('#hem'),e.clientY)),VMIN,VMAX); drawHem(); recompute(); }
+function endDrag(){dragI=-1;window.removeEventListener('pointermove',onDrag);window.removeEventListener('pointerup',endDrag);}
+
+function drawHem(repro){
+  $('#h-target').setAttribute('d', path(front.map((_,i)=>hx(i)), front.map(hy)));
+  document.querySelectorAll('#h-handles circle').forEach((c,i)=>c.setAttribute('cy',hy(front[i])));
+  if(repro) $('#h-repro').setAttribute('d', path(repro.map((_,i)=>hx(i)), repro.map(hy)));
+}
+
+/* ---------- 2D panel ---------- */
+const V=()=>M.panel.verts;                    // 4 corners, y=0; hem edge = v1..v2
+function hemCurve(y1,y2){
+  const v=V(), p1=v[1],p2=v[2]; const ex=p2[0]-p1[0],ey=p2[1]-p1[1]; const L=Math.hypot(ex,ey);
+  const ax=ex/L,ay=ey/L, px=-ay,py=ax;
+  const c1=[p1[0]+0.35*ex+y1*L*px, p1[1]+0.35*ey+y1*L*py];
+  const c2=[p1[0]+0.65*ex+y2*L*px, p1[1]+0.65*ey+y2*L*py];
+  return {p1,p2,c1,c2};
+}
+function buildPanelSvg(){ /* placeholder set each recompute */ }
+function drawPanel(y1,y2){
+  const v=V(); const xs=[v[0][0],v[1][0],v[2][0],v[3][0]];
+  // data bounds (include control points either side of the waist line)
+  const L=Math.hypot(v[2][0]-v[1][0], v[2][1]-v[1][1]);
+  const cy=[0, y1*L, y2*L];
+  const minx=Math.min(...xs)-6, maxx=Math.max(...xs)+6,
+        miny=Math.min(...cy)-8, maxy=Math.max(...cy)+8;
+  const W=480,H=240, sx=x=>(x-minx)/(maxx-minx)*W, sy=y=>H-(y-miny)/(maxy-miny)*H;
+  const outline=(c)=>{const v=V(); return `M ${sx(v[0][0])} ${sy(v[0][1])} L ${sx(v[1][0])} ${sy(v[1][1])}`
+    +` C ${sx(c.c1[0])} ${sy(c.c1[1])} ${sx(c.c2[0])} ${sy(c.c2[1])} ${sx(c.p2[0])} ${sy(c.p2[1])}`
+    +` L ${sx(v[3][0])} ${sy(v[3][1])} Z`;};
+  const base=hemCurve(-0.3,-0.3), edit=hemCurve(y1,y2);
+  let g=`<path d="${outline(base)}" fill="none" stroke="var(--base)" stroke-width="2" stroke-dasharray="4 4"/>`;
+  g+=`<path d="${outline(edit)}" fill="var(--edit)" fill-opacity="0.07" stroke="var(--edit)" stroke-width="2.5"/>`;
+  [edit.c1,edit.c2].forEach(c=>{g+=`<circle cx="${sx(c[0])}" cy="${sy(c[1])}" r="5" fill="var(--edit)" stroke="var(--panel)" stroke-width="1.5"/>`;});
+  g+=`<text x="10" y="18" fill="var(--muted)" font-size="11" font-family="var(--fs-mono)">waist</text>`;
+  g+=`<text x="10" y="${H-8}" fill="var(--muted)" font-size="11" font-family="var(--fs-mono)">hem</text>`;
+  $('#panel').innerHTML=g;
+}
+
+/* ---------- params readout ---------- */
+function buildParams(){
+  const box=$('#params'); box.innerHTML='';
+  M.coords.forEach((nm,i)=>{
+    const row=document.createElement('div'); row.className='prow';
+    row.innerHTML=`<span class="nm">${nm}</span>
+      <span class="bar"><span class="fill" id="fill${i}"></span><span class="dot" id="dot${i}"></span></span>
+      <span class="val" id="val${i}">–</span>`;
+    box.appendChild(row);
+  });
+}
+function showParams(th){
+  M.coords.forEach((nm,i)=>{
+    const lo=M.LO[i],hi=M.HI[i]; const raw=th[i]; const cl=clamp(raw,lo,hi);
+    const pct=((cl-lo)/(hi-lo))*100;
+    $('#dot'+i).style.left=pct+'%'; $('#fill'+i).style.width=pct+'%';
+    const flagged=Math.abs(raw-cl)>1e-3;
+    $('#val'+i).innerHTML = cl.toFixed(2) + (flagged?` <span class="flag" title="clipped to trained range">clip</span>`:'');
+  });
+}
+
+/* ---------- main loop ---------- */
+function recompute(){
+  const H=front.concat(back);
+  const thRaw=predict(M.inv,H);
+  const thCl=thRaw.map((v,i)=>clamp(v,M.LO[i],M.HI[i]));
+  const repro=predict(M.fwd,thCl);           // what the predicted (clipped) pattern drapes to
+  showParams(thRaw);
+  drawPanel(thCl[0],thCl[1]);
+  drawHem(repro.slice(0,NF));
+  const fr=front, rp=repro; let s=0; for(let i=0;i<NF;i++){const e=fr[i]-rp[i]; s+=e*e;}
+  $('#rep').textContent=Math.sqrt(s/NF).toFixed(2)+' cm';
+}
+
+/* ---------- presets ---------- */
+function applyPreset(kind){
+  const neu=M.h0.slice(0,NF).slice(); const c=(NF-1)/2;
+  if(kind==='neutral') front=neu.slice();
+  else for(let i=0;i<NF;i++){ const d=1-Math.abs(i-c)/c;            // 1 at centre → 0 at sides
+    if(kind==='scoop')  front[i]=neu[i]-18*d;
+    if(kind==='deep')   front[i]=neu[i]-32*Math.pow(d,0.7);
+    if(kind==='short')  front[i]=neu[i]+10*d;
+    if(kind==='asym')   front[i]=neu[i]-26*clamp((i/(NF-1)),0,1); // deepen toward one side
+  }
+  front=front.map(v=>clamp(v,VMIN,VMAX));
+  recompute();
+}
+</script>
+
+</body></html>

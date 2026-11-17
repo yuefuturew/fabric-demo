@@ -1,0 +1,267 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+</head><body>
+<title>Skirt Fit Studio</title>
+<meta name="description" content="Pull the hem on a draped skirt and watch the real cloth and its 2D panels respond.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Two stages side by side: a real draped skirt on the body (pull its hem) | the 2D panels it is cut from. */
+  :root{
+    --paper:#edeae3; --panel:#f7f6f2; --ink:#1b2130; --muted:#5c6472; --line:#c9c6bd;
+    --scene:#dedacf; --skin:#c8b6a6; --cloth:#3f6f88; --edit:#c0392b; --base:#9aa0ab; --grid:#d8d5cc;
+    --fs-sans:"IBM Plex Sans",system-ui,sans-serif; --fs-mono:"IBM Plex Mono",ui-monospace,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842;
+    --scene:#20242b; --skin:#8a7868; --cloth:#5aa0bf; --edit:#e8604f; --base:#79818f; --grid:#2a2e36; color-scheme:dark;}}
+  :root[data-theme="dark"]{
+    --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842;
+    --scene:#20242b; --skin:#8a7868; --cloth:#5aa0bf; --edit:#e8604f; --base:#79818f; --grid:#2a2e36; color-scheme:dark;}
+  *{box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);font-family:var(--fs-sans);line-height:1.45}
+  .wrap{max-width:1080px;margin:0 auto;padding-block:20px;padding-left:16px;padding-right:16px}
+  h1{font-size:1.45rem;margin:0 0 2px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--muted);font-size:.9rem;max-width:66ch}
+  .tag{display:inline-block;margin-top:8px;font-family:var(--fs-mono);font-size:.7rem;letter-spacing:.04em;
+       text-transform:uppercase;color:var(--cloth);border:1px solid var(--cloth);border-radius:999px;padding:2px 9px}
+  .grid{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;margin-top:18px}
+  @media (max-width:780px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+  .card h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px}
+  #stage{position:relative;width:100%;aspect-ratio:4/5;border-radius:9px;overflow:hidden;background:var(--scene);touch-action:none}
+  #stage canvas{display:block;width:100%;height:100%}
+  .handle{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;
+    background:var(--edit);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:ns-resize;touch-action:none;z-index:3}
+  .handle::after{content:"↕";color:#fff;font-size:13px;line-height:20px;display:block;text-align:center;font-weight:600}
+  .hhint{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);font-size:.72rem;color:var(--muted);
+    background:var(--panel);padding:3px 9px;border-radius:999px;border:1px solid var(--line);z-index:3;opacity:.9}
+  .panels{display:flex;gap:12px}
+  .pcell{flex:1;min-width:0;text-align:center}
+  .pcell svg{width:100%;height:auto;background:var(--paper);border:1px solid var(--line);border-radius:8px}
+  .pcell .cap{font-size:.74rem;color:var(--muted);margin-top:5px;font-family:var(--fs-mono)}
+  .read{margin-top:12px;font-size:.85rem;display:flex;flex-wrap:wrap;gap:16px}
+  .read b{font-family:var(--fs-mono)}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  button{font-family:var(--fs-sans);font-size:.84rem;color:var(--ink);background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:6px 11px;cursor:pointer}
+  button:hover{border-color:var(--cloth)} button:focus-visible{outline:2px solid var(--cloth);outline-offset:2px}
+  .note{margin-top:18px;font-size:.82rem;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;max-width:74ch}
+  .note b{color:var(--ink)}
+  .loading{padding:50px 0;text-align:center;color:var(--muted)}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Skirt Fit Studio</h1>
+    <p>Grab a red hem handle on the skirt and pull it down to lengthen the front, or up to shorten it. The skirt is a
+       real draped simulation on the body; the panels on the right are the flat pieces it is cut from, redrawn as you edit.</p>
+    <span class="tag">real drapes · drag the hem · panels update live</span>
+  </header>
+
+  <div id="app" class="loading">Loading the body and draped skirts…</div>
+
+  <p class="note" id="note" hidden></p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let MAN, BUF, NODES, cur={y1:-0.3,y2:-0.3}, THREEok=(typeof THREE!=='undefined');
+
+function b64buf(s){const bin=atob(s),n=bin.length,u=new Uint8Array(n);for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i);return u.buffer;}
+fetch('scene.json').then(r=>r.json()).then(m=>{MAN=m;BUF=b64buf(m.geomB64);NODES=m.nodes;boot();})
+ .catch(()=>{document.getElementById('app').textContent='Could not load the scene file.';});
+
+function deq(entry){ // -> {pos:Float32Array, idx:Uint16Array}
+  const lo=MAN.bboxMin, hi=MAN.bboxMax, sx=hi[0]-lo[0],sy=hi[1]-lo[1],sz=hi[2]-lo[2];
+  const q=new Uint16Array(BUF, entry.vOff, entry.vCount*3);
+  const pos=new Float32Array(entry.vCount*3);
+  for(let i=0;i<entry.vCount;i++){
+    pos[i*3]  =lo[0]+q[i*3]  /65535*sx;
+    pos[i*3+1]=lo[1]+q[i*3+1]/65535*sy;
+    pos[i*3+2]=lo[2]+q[i*3+2]/65535*sz;
+  }
+  const idx=new Uint16Array(BUF, entry.fOff, entry.fCount*3).slice();
+  return {pos,idx};
+}
+
+/* ---------- 3D (all THREE objects created lazily in initGL, so a missing library never breaks the page) ---------- */
+let renderer,scene,cam,bodyMesh,garMesh,garGeoms={},target,radius,az=0.1,el=0.12;
+let anchorL,anchorR;
+
+function boot(){
+  document.getElementById('app').classList.remove('loading');
+  document.getElementById('app').innerHTML=`
+    <div class="grid">
+      <div class="card">
+        <h2>Draped skirt on the body — pull the hem</h2>
+        <div id="stage">
+          <div class="handle" id="hL" title="front-left hem"></div>
+          <div class="handle" id="hR" title="front-right hem"></div>
+          <div class="hhint">drag ▲ shorter · ▼ longer — drag the background to rotate</div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>The 2-D panels it is cut from</h2>
+        <div class="panels">
+          <div class="pcell"><svg id="pf" viewBox="0 0 220 240"></svg><div class="cap" id="pfc">front</div></div>
+          <div class="pcell"><svg id="pb" viewBox="0 0 220 240"></svg><div class="cap">back · unchanged</div></div>
+        </div>
+        <div class="read">
+          <span>front-hem controls: <b id="rv">y1 −0.30 · y2 −0.30</b></span>
+        </div>
+        <div class="controls">
+          <button data-y="-0.3,-0.3">Neutral</button>
+          <button data-y="-0.7,-0.7">Scoop</button>
+          <button data-y="-0.9,-0.9">Long</button>
+          <button data-y="-0.9,-0.3">Asymmetric</button>
+        </div>
+      </div>
+    </div>`;
+  THREEok=(typeof THREE!=='undefined');
+  try{
+    if(!THREEok) throw new Error('three.js unavailable');
+    initGL();
+  }catch(err){
+    const s=document.getElementById('stage');
+    if(s) s.innerHTML='<div class="loading">The 3-D view could not start here (WebGL or the 3-D library is unavailable).<br>The 2-D panels on the right still respond to the buttons.</div>';
+  }
+  buildPanels(); updateReadout();
+  document.querySelectorAll('[data-y]').forEach(b=>b.onclick=()=>{const [a,c]=b.dataset.y.split(',').map(Number);setY(a,c);});
+  document.getElementById('note').hidden=false;
+  document.getElementById('note').innerHTML=`<b>What you are seeing.</b> The skirt is a real cloth simulation draped on
+    the body for a grid of front-hem settings; dragging snaps to the nearest precomputed drape, so it moves in real
+    steps rather than continuously. The back panel is held fixed, so only the front hem changes — in the cloth and in
+    the flat panels. This is the paper's edit space made tangible; turning an arbitrary hand-drawn hem into a valid
+    pattern is the learned-initialization step, and reaching it precisely needs the simulation-correction step.`;
+}
+
+function initGL(){
+  target=new THREE.Vector3(); anchorL=new THREE.Vector3(); anchorR=new THREE.Vector3();
+  const stage=document.getElementById('stage');
+  renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  stage.appendChild(renderer.domElement);
+  scene=new THREE.Scene();
+  const dark=matchMedia('(prefers-color-scheme:dark)').matches && !document.documentElement.dataset.theme || document.documentElement.dataset.theme==='dark';
+  scene.background=new THREE.Color(dark?0x20242b:0xdedacf);
+  cam=new THREE.PerspectiveCamera(38,1,1,5000);
+  // body
+  const body=deq(MAN.body);
+  bodyMesh=mesh(body, 0x000000, true); scene.add(bodyMesh);
+  bodyMesh.material.color.set(getCSS('--skin'));
+  // garment geoms (lazy build on demand, cache)
+  const b=bboxOf(body.pos);
+  target.set((b.min.x+b.max.x)/2,(b.min.y+b.max.y)/2,(b.min.z+b.max.z)/2);
+  radius=Math.max(b.max.y-b.min.y,b.max.x-b.min.x)*1.55;
+  // lights
+  scene.add(new THREE.HemisphereLight(0xffffff,0x555555,0.85));
+  const d1=new THREE.DirectionalLight(0xffffff,0.8); d1.position.set(1,1.4,1.2); scene.add(d1);
+  const d2=new THREE.DirectionalLight(0xffffff,0.35); d2.position.set(-1,0.4,-0.8); scene.add(d2);
+  setGarment(nearestNode(cur.y1,cur.y2),true);
+  orbit(stage); resize(); addEventListener('resize',resize);
+  renderer.setAnimationLoop(render);
+}
+function getCSS(v){return getComputedStyle(document.body).getPropertyValue(v).trim()||'#888';}
+function mesh(g,col,isBody){
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(g.pos,3));
+  geo.setIndex(new THREE.BufferAttribute(g.idx,1));
+  geo.computeVertexNormals();
+  const mat=new THREE.MeshStandardMaterial({color:new THREE.Color(col),roughness:isBody?0.95:0.75,metalness:0.0,
+    side:isBody?THREE.FrontSide:THREE.DoubleSide});
+  return new THREE.Mesh(geo,mat);
+}
+function bboxOf(pos){const mn=new THREE.Vector3(1e9,1e9,1e9),mx=new THREE.Vector3(-1e9,-1e9,-1e9);
+  for(let i=0;i<pos.length;i+=3){mn.x=Math.min(mn.x,pos[i]);mn.y=Math.min(mn.y,pos[i+1]);mn.z=Math.min(mn.z,pos[i+2]);
+    mx.x=Math.max(mx.x,pos[i]);mx.y=Math.max(mx.y,pos[i+1]);mx.z=Math.max(mx.z,pos[i+2]);}
+  return {min:mn,max:mx};}
+function nearestNode(y1,y2){let best=NODES[0],bd=1e9;
+  for(const n of NODES){const d=(n.y1-y1)**2+(n.y2-y2)**2; if(d<bd){bd=d;best=n;}} return best;}
+function setGarment(node,first){
+  if(garMesh) garMesh.visible=false;
+  const key=node.iy+'_'+node.jy;
+  if(!garGeoms[key]) garGeoms[key]=mesh(deq(node),0x000000,false);
+  garMesh=garGeoms[key];
+  if(!garMesh.parent) scene.add(garMesh);
+  garMesh.visible=true; garMesh.material.color.set(getCSS('--cloth'));
+  computeAnchors();
+}
+function computeAnchors(){ // lowest front-left / front-right garment points ~ where y1,y2 act
+  const pos=garMesh.geometry.attributes.position.array; let cx=0,n=0,zmax=-1e9,zmin=1e9;
+  for(let i=0;i<pos.length;i+=3){cx+=pos[i];n++;zmax=Math.max(zmax,pos[i+2]);zmin=Math.min(zmin,pos[i+2]);}
+  cx/=n; const zt=zmax-0.4*(zmax-zmin);
+  let lY=1e9,rY=1e9,lp=null,rp=null;
+  for(let i=0;i<pos.length;i+=3){ if(pos[i+2]<zt) continue; const x=pos[i],y=pos[i+1];
+    if(x<cx && y<lY){lY=y;lp=[x,y,pos[i+2]];} if(x>=cx && y<rY){rY=y;rp=[x,y,pos[i+2]];}}
+  if(lp)anchorL.set(lp[0],lp[1]+3,lp[2]); if(rp)anchorR.set(rp[0],rp[1]+3,rp[2]);
+}
+function render(){
+  const e=clamp(el,-0.35,1.2);
+  cam.position.set(target.x+radius*Math.sin(az)*Math.cos(e), target.y+radius*Math.sin(e), target.z+radius*Math.cos(az)*Math.cos(e));
+  cam.lookAt(target); renderer.render(scene,cam); placeHandles();
+}
+function placeHandles(){
+  const r=renderer.domElement.getBoundingClientRect(), st=document.getElementById('stage').getBoundingClientRect();
+  for(const [id,a] of [['hL',anchorL],['hR',anchorR]]){
+    const v=a.clone().project(cam); const x=(v.x*0.5+0.5)*r.width, y=(-v.y*0.5+0.5)*r.height;
+    const h=document.getElementById(id); h.style.left=x+'px'; h.style.top=y+'px';
+    h.style.display=(v.z<1)?'block':'none';
+  }
+}
+function resize(){const s=document.getElementById('stage');const w=s.clientWidth,h=s.clientHeight;
+  renderer.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();}
+
+/* orbit + handle drag */
+function orbit(stage){
+  let drag=false,px,py;
+  stage.addEventListener('pointerdown',e=>{if(e.target.classList.contains('handle'))return;drag=true;px=e.clientX;py=e.clientY;stage.setPointerCapture(e.pointerId);});
+  stage.addEventListener('pointermove',e=>{if(!drag)return;az-=(e.clientX-px)*0.01;el+=(e.clientY-py)*0.01;px=e.clientX;py=e.clientY;});
+  stage.addEventListener('pointerup',()=>drag=false);
+  stage.addEventListener('wheel',e=>{e.preventDefault();radius=clamp(radius*(1+Math.sign(e.deltaY)*0.08),40,2000);},{passive:false});
+  for(const [id,which] of [['hL','y1'],['hR','y2']]) dragHandle(id,which);
+}
+function dragHandle(id,which){
+  const h=document.getElementById(id); let y0,v0;
+  h.addEventListener('pointerdown',e=>{e.stopPropagation();h.setPointerCapture(e.pointerId);y0=e.clientY;v0=cur[which];
+    const mv=ev=>{const dy=ev.clientY-y0; const nv=clamp(v0-dy*0.004,-0.9,-0.3); // down = more negative = longer
+      if(which==='y1')setY(nv,cur.y2);else setY(cur.y1,nv);};
+    const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up);};
+    addEventListener('pointermove',mv);addEventListener('pointerup',up);});
+}
+function setY(y1,y2){cur.y1=y1;cur.y2=y2; const n=nearestNode(y1,y2); cur.y1=n.y1;cur.y2=n.y2;
+  if(garMesh) setGarment(n); buildPanels(); updateReadout();}
+function updateReadout(){document.getElementById('rv').textContent=`y1 ${cur.y1.toFixed(2)} · y2 ${cur.y2.toFixed(2)}`;
+  document.getElementById('pfc').textContent = (cur.y1!==-0.3||cur.y2!==-0.3)?'front · edited':'front';}
+
+/* ---------- 2D panels ---------- */
+function hemCurve(verts,y1,y2){const p1=verts[1],p2=verts[2];const ex=p2[0]-p1[0],ey=p2[1]-p1[1],L=Math.hypot(ex,ey);
+  const ax=ex/L,ay=ey/L,px=-ay,py=ax;
+  return {p1,p2,c1:[p1[0]+0.35*ex+y1*L*px,p1[1]+0.35*ey+y1*L*py],c2:[p1[0]+0.65*ex+y2*L*px,p1[1]+0.65*ey+y2*L*py]};}
+function drawPanel(svgId,panel,y1,y2,edited){
+  const v=panel.verts, hc=panel.hem_cubic;
+  const c=(y1!=null)?hemCurve(v,y1,y2):hemCurve(v,hc[0][1],hc[1][1]);
+  const cy=[0,(y1!=null?y1:hc[0][1]),(y1!=null?y2:hc[1][1])].map(t=>t*Math.hypot(v[2][0]-v[1][0],v[2][1]-v[1][1]));
+  const xs=v.map(p=>p[0]); const minx=Math.min(...xs)-8,maxx=Math.max(...xs)+8,miny=Math.min(...cy)-10,maxy=Math.max(...cy)+10;
+  const W=220,H=240,sx=x=>(x-minx)/(maxx-minx)*W,sy=y=>H-(y-miny)/(maxy-miny)*H;
+  const col=edited?getCSS('--edit'):getCSS('--base');
+  // measurement grid: 10 cm lines (panel vertices are in cm), with a width readout
+  const STEP=10; let g='';
+  for(let gx=Math.ceil(minx/STEP)*STEP; gx<=maxx; gx+=STEP) g+=`<line x1="${sx(gx).toFixed(1)}" y1="0" x2="${sx(gx).toFixed(1)}" y2="${H}" stroke="var(--grid)" stroke-width="0.6"/>`;
+  for(let gy=Math.ceil(miny/STEP)*STEP; gy<=maxy; gy+=STEP) g+=`<line x1="0" y1="${sy(gy).toFixed(1)}" x2="${W}" y2="${sy(gy).toFixed(1)}" stroke="var(--grid)" stroke-width="0.6"/>`;
+  const widthCm=Math.abs(v[2][0]-v[1][0]), dropCm=Math.abs(Math.min(...cy));
+  g+=`<text x="4" y="12" font-size="9" fill="var(--muted)" font-family="var(--fs-mono)">grid 10 cm</text>`;
+  g+=`<text x="${W-4}" y="${H-5}" text-anchor="end" font-size="9" fill="var(--muted)" font-family="var(--fs-mono)">w ${widthCm.toFixed(0)} · drop ${dropCm.toFixed(0)} cm</text>`;
+  const d=`M ${sx(v[0][0])} ${sy(v[0][1])} L ${sx(v[1][0])} ${sy(v[1][1])} `
+    +`C ${sx(c.c1[0])} ${sy(c.c1[1])} ${sx(c.c2[0])} ${sy(c.c2[1])} ${sx(c.p2[0])} ${sy(c.p2[1])} `
+    +`L ${sx(v[3][0])} ${sy(v[3][1])} Z`;
+  g+=`<path d="${d}" fill="${col}" fill-opacity="0.09" stroke="${col}" stroke-width="2.4"/>`;
+  if(y1!=null){[c.c1,c.c2].forEach(p=>g+=`<circle cx="${sx(p[0])}" cy="${sy(p[1])}" r="4.5" fill="${getCSS('--edit')}" stroke="#fff" stroke-width="1.3"/>`);}
+  document.getElementById(svgId).innerHTML=g;
+}
+function buildPanels(){drawPanel('pf',MAN.panels.front,cur.y1,cur.y2,(cur.y1!==-0.3||cur.y2!==-0.3));
+  drawPanel('pb',MAN.panels.back,null,null,false);}
+</script>
+
+</body></html>
