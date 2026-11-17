@@ -1,0 +1,101 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sleeved Shirt 3D</title>
+<meta name="description" content="Inverse editing of a sleeved shirt on the body in 3D: original, learned initialization, and our fitted result.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{ --paper:#edeae3; --panel:#f7f6f2; --ink:#1b2130; --muted:#5c6472; --line:#c9c6bd;
+    --scene:#e4e0d6; --grid:#d3d0c7; --fs:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace; }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842; --scene:#23262d; --grid:#2a2e36; color-scheme:dark;}}
+  :root[data-theme="dark"]{ --paper:#14161b; --panel:#1d2026; --ink:#e7e8ea; --muted:#9aa0ab; --line:#333842; --scene:#23262d; --grid:#2a2e36; color-scheme:dark;}
+  *{box-sizing:border-box} body{background:var(--paper);color:var(--ink);font-family:var(--fs);line-height:1.45}
+  .wrap{max-width:1120px;margin:0 auto;padding-block:20px;padding-left:16px;padding-right:16px}
+  h1{font-size:1.4rem;margin:0 0 2px} header p{margin:0;color:var(--muted);font-size:.9rem;max-width:72ch}
+  .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:flex-start}
+  .stage{flex:1 1 220px;min-width:190px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 6px 6px}
+  .stage .cv{position:relative;width:100%;aspect-ratio:1/1;border-radius:7px;overflow:hidden;background:var(--scene);touch-action:none}
+  .stage canvas{display:block;width:100%;height:100%}
+  .stage .t{font-size:.9rem;font-weight:600;text-align:center;margin-top:5px}
+  .stage .s{font-size:.76rem;color:var(--muted);text-align:center;font-family:var(--mono)}
+  .hint{margin-top:10px;font-size:.8rem;color:var(--muted)}
+  .note{margin-top:16px;font-size:.8rem;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;max-width:76ch}
+  .note b{color:var(--ink)} .loading{padding:40px;text-align:center;color:var(--muted)}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Sleeved Shirt Edit 3D</h1>
+    <p>Our method on a sleeved shirt: from a short-sleeve, higher-neck original to a long-sleeve, deeper-neck target.
+       The learned initializer predicts the pattern edit (sleeve length and neckline) from the target boundary, then a
+       few simulations refine it. Drag any figure to rotate them all together · scroll to zoom.</p>
+  </header>
+  <div id="app" class="loading">Loading figures…</div>
+  <p class="note" id="note" hidden></p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let MAN,BUF,views=[],az=0.0,el=0.08,radius,target;
+function b64buf(s){const bin=atob(s),n=bin.length,u=new Uint8Array(n);for(let i=0;i<n;i++)u[i]=bin.charCodeAt(i);return u.buffer;}
+fetch('scene.json').then(r=>r.json()).then(m=>{MAN=m;BUF=b64buf(m.geomB64);boot();}).catch(()=>{document.getElementById('app').textContent='Could not load the scene.';});
+
+function deq(e){const lo=MAN.bboxMin,hi=MAN.bboxMax,sx=hi[0]-lo[0],sy=hi[1]-lo[1],sz=hi[2]-lo[2];
+  const q=new Uint16Array(BUF,e.vOff,e.vCount*3),pos=new Float32Array(e.vCount*3);
+  for(let i=0;i<e.vCount;i++){pos[i*3]=lo[0]+q[i*3]/65535*sx;pos[i*3+1]=lo[1]+q[i*3+1]/65535*sy;pos[i*3+2]=lo[2]+q[i*3+2]/65535*sz;}
+  return {pos,idx:new Uint16Array(BUF,e.fOff,e.fCount*3).slice()};}
+function meshOf(g,col,isBody){const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(g.pos,3));geo.setIndex(new THREE.BufferAttribute(g.idx,1));geo.computeVertexNormals();
+  return new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:new THREE.Color(col),roughness:isBody?0.9:0.7,metalness:0,side:isBody?THREE.FrontSide:THREE.DoubleSide}));}
+
+function boot(){
+  const app=document.getElementById('app'); app.classList.remove('loading');
+  app.innerHTML='<div class="row" id="row"></div>'+
+    '<p class="hint">Drag to rotate · scroll to zoom. Tip: rotate to a 3/4 angle and use your system screenshot to capture the figure.</p>';
+  const row=document.getElementById('row');
+  const bodyG=deq(MAN.body);
+  let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+  for(let i=0;i<bodyG.pos.length;i+=3)for(let k=0;k<3;k++){mn[k]=Math.min(mn[k],bodyG.pos[i+k]);mx[k]=Math.max(mx[k],bodyG.pos[i+k]);}
+  // frame on the upper body + full sleeve span: raise the target to the chest and size the radius to the
+  // garment width so the long sleeves are not clipped.
+  const W=mx[0]-mn[0], Hh=mx[1]-mn[1];
+  target=new THREE.Vector3((mn[0]+mx[0])/2, mn[1]+Hh*0.69, (mn[2]+mx[2])/2);
+  radius=Math.max(W, Hh*0.5)*1.9;
+  if(typeof THREE==='undefined'){row.innerHTML='<div class="loading">3-D library did not load.</div>';return;}
+  MAN.stages.forEach(st=>{
+    const cell=document.createElement('div'); cell.className='stage';
+    cell.innerHTML=`<div class="cv"></div><div class="t">${st.title}</div><div class="s">${st.sub}</div>`;
+    row.appendChild(cell);
+    const cv=cell.querySelector('.cv');
+    const rnd=new THREE.WebGLRenderer({antialias:true}); rnd.setPixelRatio(Math.min(devicePixelRatio,2)); cv.appendChild(rnd.domElement);
+    const sc=new THREE.Scene();
+    const dark=matchMedia('(prefers-color-scheme:dark)').matches && !document.documentElement.dataset.theme || document.documentElement.dataset.theme==='dark';
+    sc.background=new THREE.Color(dark?0x23262d:0xe4e0d6);
+    sc.add(new THREE.HemisphereLight(0xffffff,0x606060,0.95));
+    const d1=new THREE.DirectionalLight(0xffffff,0.9); d1.position.set(1,1.4,1.2); sc.add(d1);
+    const d2=new THREE.DirectionalLight(0xffffff,0.4); d2.position.set(-1,0.4,-0.8); sc.add(d2);
+    sc.add(meshOf(bodyG,0xc8b6a6,true));
+    sc.add(meshOf(deq(st),new THREE.Color(st.color[0],st.color[1],st.color[2]),false));
+    const cam=new THREE.PerspectiveCamera(34,1,1,8000);
+    orbit(cv); views.push({rnd,sc,cam});
+  });
+  document.getElementById('note').hidden=false;
+  document.getElementById('note').innerHTML='<b>Note.</b> Precomputed 3-D preview of one method run on a sleeved shirt. '+
+    'A target drape (long sleeves, deeper and wider neckline) is given; the learned initializer predicts the four-parameter '+
+    'edit (sleeve length, neckline depth and width) from the registered boundary over all eight torso and sleeve panels, '+
+    'and a short black-box simulation fitting refines it. The initialized and fitted garments both pass the simulator checks.';
+  resizeAll(); addEventListener('resize',resizeAll);
+  (function loop(){const e=clamp(el,-0.3,1.0);
+    for(const v of views){ v.cam.position.set(target.x+radius*Math.sin(az)*Math.cos(e),target.y+radius*Math.sin(e),target.z+radius*Math.cos(az)*Math.cos(e));
+      v.cam.lookAt(target); v.rnd.render(v.sc,v.cam);} requestAnimationFrame(loop);})();
+}
+function orbit(el_){let drag=false,px,py;
+  el_.addEventListener('pointerdown',e=>{drag=true;px=e.clientX;py=e.clientY;el_.setPointerCapture(e.pointerId);});
+  el_.addEventListener('pointermove',e=>{if(!drag)return;az-=(e.clientX-px)*0.01;el+=(e.clientY-py)*0.01;px=e.clientX;py=e.clientY;});
+  el_.addEventListener('pointerup',()=>drag=false);
+  el_.addEventListener('wheel',e=>{e.preventDefault();radius=clamp(radius*(1+Math.sign(e.deltaY)*0.08),30,3000);},{passive:false});}
+function resizeAll(){for(let i=0;i<views.length;i++){const cv=document.querySelectorAll('.cv')[i];const w=cv.clientWidth,h=cv.clientHeight;
+  views[i].rnd.setSize(w,h,false);views[i].cam.aspect=w/h;views[i].cam.updateProjectionMatrix();}}
+</script>
